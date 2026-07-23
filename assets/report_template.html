@@ -1,0 +1,447 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SPC 过程能力报告（AIAG-VDA 新版合规）</title>
+<style>
+:root{--main:#C8102E;--ink:#222;--muted:#777;--line:#ddd;--bg:#f7f7f8;--lock:#f0f3f7;}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:"Microsoft YaHei","PingFang SC",sans-serif;color:var(--ink);background:var(--bg);line-height:1.6;font-size:14px}
+.wrap{max-width:1080px;margin:0 auto;padding:16px}
+/* 工具栏 */
+.toolbar{position:sticky;top:0;z-index:50;background:#fff;border-bottom:3px solid var(--main);padding:10px 16px;display:flex;gap:8px;flex-wrap:wrap;align-items:center;box-shadow:0 2px 6px rgba(0,0,0,.08)}
+.toolbar .brand{font-weight:700;color:var(--main);margin-right:auto;font-size:15px}
+.btn{border:1px solid var(--main);background:#fff;color:var(--main);padding:5px 12px;border-radius:4px;cursor:pointer;font-size:13px}
+.btn:hover{background:var(--main);color:#fff}
+.btn.primary{background:var(--main);color:#fff}
+.btn.primary:hover{opacity:.88}
+.badge{font-size:12px;padding:2px 8px;border-radius:10px;background:#eee;color:#555}
+.badge.editing{background:#fff3cd;color:#8a6d00}
+.badge.saved{background:#e7f5ea;color:#1a7f37}
+/* 报告主体 */
+.report{background:#fff;margin-top:14px;border:1px solid var(--line);border-radius:6px;overflow:hidden}
+.rp-head{border-bottom:4px solid var(--main);padding:22px 28px 16px}
+.rp-head h1{font-size:22px;color:var(--main);letter-spacing:1px}
+.rp-head .sub{color:var(--muted);font-size:12px;margin-top:4px}
+section{padding:16px 28px;border-bottom:1px solid var(--line)}
+section h2{font-size:16px;color:var(--main);border-left:4px solid var(--main);padding-left:8px;margin-bottom:10px}
+section h2 .tag{font-size:11px;color:#fff;background:var(--main);border-radius:3px;padding:1px 6px;vertical-align:middle;margin-left:6px;font-weight:400}
+section h2 .tag.lock{background:#5a6b7f}
+.grid{display:grid;grid-template-columns:repeat(4,1fr);gap:8px 14px}
+.grid.g3{grid-template-columns:repeat(3,1fr)}
+.grid.g2{grid-template-columns:repeat(2,1fr)}
+.fld label{display:block;font-size:11px;color:var(--muted)}
+.fld .val{border:1px dashed transparent;border-radius:3px;padding:3px 6px;min-height:26px;background:transparent}
+body.editing .fld .val[contenteditable=true]{border-color:#c9a227;background:#fffdf2}
+.fld .val:focus{outline:2px solid var(--main)}
+.locked{background:var(--lock);border-radius:4px;padding:10px 12px}
+.note{font-size:12px;color:var(--muted)}
+.warn{background:#fff3f3;border:1px solid #f1b8b8;color:#9c1c1c;padding:8px 12px;border-radius:4px;font-size:13px;margin:8px 0}
+.ok{background:#e7f5ea;border:1px solid #b7dfc0;color:#1a7f37;padding:8px 12px;border-radius:4px;font-size:13px;margin:8px 0}
+table{border-collapse:collapse;width:100%;font-size:13px}
+th,td{border:1px solid var(--line);padding:4px 8px;text-align:center}
+th{background:#faf0f1;color:var(--main)}
+/* 数据表 */
+#dataTable td[contenteditable=true]{background:#fffdf2;cursor:text}
+body:not(.editing) #dataTable td{background:transparent;pointer-events:none}
+#dataTable td.bad{background:#ffe3e3}
+.charts{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+.chart-card{border:1px solid var(--line);border-radius:6px;padding:10px}
+.chart-card h3{font-size:13px;color:#444;margin-bottom:4px}
+svg{width:100%;height:auto;display:block}
+.idx-cards{display:flex;gap:12px;flex-wrap:wrap}
+.idx-card{border:1px solid var(--line);border-left:4px solid var(--main);border-radius:4px;padding:8px 16px;min-width:110px;text-align:center}
+.idx-card .k{font-size:12px;color:var(--muted)}
+.idx-card .v{font-size:22px;font-weight:700;color:var(--main)}
+.idx-card.na .v{color:#999;font-size:14px;padding:6px 0}
+.footer{padding:14px 28px;font-size:11px;color:var(--muted)}
+#recalcBanner{display:none}
+body.dirty #recalcBanner{display:block}
+/* 打印 / PDF */
+@media print{
+  .toolbar,#recalcBanner,.no-print{display:none!important}
+  body{background:#fff;font-size:12px}
+  .wrap{max-width:none;padding:0}
+  .report{border:none;margin:0}
+  section{page-break-inside:avoid;padding:10px 6mm}
+  .charts{grid-template-columns:1fr 1fr}
+  .fld .val{border:none!important;background:transparent!important}
+  @page{size:A4;margin:14mm 10mm}
+}
+</style>
+</head>
+<body>
+<div class="toolbar no-print">
+  <span class="brand">SPC 报告 · AIAG-VDA 新版</span>
+  <span id="modeBadge" class="badge">呈现态</span>
+  <span id="saveBadge" class="badge saved">已就绪</span>
+  <button class="btn" id="btnEdit">进入编辑</button>
+  <button class="btn" id="btnRecalc">重新计算</button>
+  <button class="btn" id="btnJson">导出JSON</button>
+  <button class="btn" id="btnImport">导入JSON</button>
+  <button class="btn" id="btnHtml">另存HTML</button>
+  <button class="btn primary" id="btnPdf">导出PDF</button>
+  <input type="file" id="fileImport" accept=".json" style="display:none">
+</div>
+
+<div class="wrap">
+<div class="warn" id="recalcBanner">⚠ 数据已被编辑：页面已按<b>正态假设</b>即时重算统计结果。若原分布为非正态、或用于正式发布，请将编辑后数据导出 JSON 后回计算引擎重跑校验。</div>
+
+<div class="report" id="report">
+  <div class="rp-head">
+    <h1>过程能力/性能报告</h1>
+    <div class="sub">依据 AIAG-VDA《统计过程控制（SPC）》2026 第一版 第11章 · 报告 20 项要素 | 生成时间：<span id="genAt"></span></div>
+  </div>
+
+  <section>
+    <h2>一、过程与特性识别 <span class="tag">要素1-2 · 可编辑</span></h2>
+    <div class="grid" id="secIdent"></div>
+  </section>
+
+  <section>
+    <h2>二、数据收集条件 <span class="tag">要素3-8 · 可编辑</span></h2>
+    <div class="grid" id="secCond"></div>
+  </section>
+
+  <section>
+    <h2>三、测量过程 <span class="tag">要素9-10 · 可编辑</span></h2>
+    <div class="grid g3" id="secMeas"></div>
+    <div class="note" style="margin-top:6px">新版要求：测量系统未经 MSA 确认合格，SPC 数据视为无效。GRR/不确定度缺失时报告不满足合规要求。</div>
+  </section>
+
+  <section>
+    <h2>四、原始数据 <span class="tag">编辑后自动重算</span></h2>
+    <div class="note" style="margin-bottom:6px">子组大小 n=<span id="nSub"></span>；编辑态下单元格可修改，修改后点击「重新计算」或自动触发重算。</div>
+    <div style="max-height:260px;overflow:auto"><table id="dataTable"></table></div>
+  </section>
+
+  <section>
+    <h2>五、图形分析 <span class="tag lock">要素11-14 · 随数据重算</span></h2>
+    <div class="charts">
+      <div class="chart-card"><h3>链图（时序）</h3><div id="chRun"></div></div>
+      <div class="chart-card"><h3>直方图 + 拟合分布</h3><div id="chHist"></div></div>
+      <div class="chart-card"><h3>概率图</h3><div id="chProb"></div></div>
+      <div class="chart-card"><h3>控制图（<span id="chartTypeLabel"></span>）</h3><div id="chCtrl"></div><div id="chCtrl2"></div></div>
+    </div>
+    <div class="note" id="ruleNote" style="margin-top:8px"></div>
+  </section>
+
+  <section>
+    <h2>六、稳定性声明 <span class="tag lock">要素15</span></h2>
+    <div id="secStable"></div>
+  </section>
+
+  <section>
+    <h2>七、分布模型及验证 <span class="tag lock">要素16</span></h2>
+    <div class="locked" id="secDist"></div>
+  </section>
+
+  <section>
+    <h2>八、样本统计量 <span class="tag lock">要素17</span></h2>
+    <div class="locked"><table id="secStats"></table></div>
+  </section>
+
+  <section>
+    <h2>九、能力/性能指数 <span class="tag lock">要素18</span></h2>
+    <div class="note" id="idxMethod" style="margin-bottom:8px"></div>
+    <div class="idx-cards" id="secIdx"></div>
+    <div id="idxNotes"></div>
+  </section>
+
+  <section>
+    <h2>十、预期不合格比例 <span class="tag lock">要素19</span></h2>
+    <div class="idx-cards"><div class="idx-card"><div class="k">预期 ppm（按所选分布模型）</div><div class="v" id="secPpm">—</div></div></div>
+  </section>
+
+  <section>
+    <h2>十一、结论与建议 <span class="tag">要素20 · 用户拍板</span></h2>
+    <div class="fld"><div class="val" id="secConcl" contenteditable="false" data-key="conclusion"></div></div>
+    <div class="note" style="margin-top:6px">结论与处置判定权在使用者；引擎给出的提示仅供参考。</div>
+  </section>
+
+  <div class="footer" id="secFooter"></div>
+</div>
+</div>
+
+<script id="payload" type="application/json">__PAYLOAD__</script>
+<script>
+/* ================= 数据装载 ================= */
+const P = JSON.parse(document.getElementById('payload').textContent);
+let R = P.result;          // 引擎结果
+let INFO = P.info;         // 抬头/条件信息
+let DATA = R.raw_data.slice();   // 当前数据（可编辑）
+let dirty = false;
+const LS_KEY = 'spc_report_' + (P.report_id || 'default');
+
+/* ================= 工具函数 ================= */
+const $ = id => document.getElementById(id);
+const fmt = (v,d=4) => (v===null||v===undefined||isNaN(v)) ? '—' : Number(v).toFixed(d).replace(/\.?0+$/,m=>m.includes('.')?'':m);
+const CONST={2:{A2:1.880,A3:2.659,d2:1.128,D3:0,D4:3.267,B3:0,B4:3.267,c4:.7979},3:{A2:1.023,A3:1.954,d2:1.693,D3:0,D4:2.574,B3:0,B4:2.568,c4:.8862},4:{A2:.729,A3:1.628,d2:2.059,D3:0,D4:2.282,B3:0,B4:2.266,c4:.9213},5:{A2:.577,A3:1.427,d2:2.326,D3:0,D4:2.114,B3:0,B4:2.089,c4:.94},6:{A2:.483,A3:1.287,d2:2.534,D3:0,D4:2.004,B3:.03,B4:1.97,c4:.9515},7:{A2:.419,A3:1.182,d2:2.704,D3:.076,D4:1.924,B3:.118,B4:1.882,c4:.9594},8:{A2:.373,A3:1.099,d2:2.847,D3:.136,D4:1.864,B3:.185,B4:1.815,c4:.965},9:{A2:.337,A3:1.032,d2:2.970,D3:.184,D4:1.816,B3:.239,B4:1.761,c4:.9693},10:{A2:.308,A3:.975,d2:3.078,D3:.223,D4:1.777,B3:.284,B4:1.716,c4:.9727}};
+const mean=a=>a.reduce((x,y)=>x+y,0)/a.length;
+const sd=a=>{const m=mean(a);return Math.sqrt(a.reduce((s,v)=>s+(v-m)*(v-m),0)/(a.length-1));};
+/* 标准正态 CDF 与逆函数（Acklam 近似）*/
+function ncdf(x){return .5*(1+erf(x/Math.SQRT2));}
+function erf(x){const s=x<0?-1:1;x=Math.abs(x);const t=1/(1+.3275911*x);const y=1-((((1.061405429*t-1.453152027)*t+1.421413741)*t-.284496736)*t+.254829592)*t*Math.exp(-x*x);return s*y;}
+function ninv(p){if(p<=0)return -8;if(p>=1)return 8;const a=[-3.969683028665376e1,2.209460984245205e2,-2.759285104469687e2,1.383577518672690e2,-3.066479806614716e1,2.506628277459239],b=[-5.447609879822406e1,1.615858368580409e2,-1.556989798598866e2,6.680131188771972e1,-1.328068155288572e1],c=[-7.784894002430293e-3,-3.223964580411365e-1,-2.400758277161838,-2.549732539343734,4.374664141464968,2.938163982698783],d=[7.784695709041462e-3,3.224671290700398e-1,2.445134137142996,3.754408661907416];const pl=.02425;let q,r;if(p<pl){q=Math.sqrt(-2*Math.log(p));return(((((c[0]*q+c[1])*q+c[2])*q+c[3])*q+c[4])*q+c[5])/((((d[0]*q+d[1])*q+d[2])*q+d[3])*q+1);}if(p<=1-pl){q=p-.5;r=q*q;return(((((a[0]*r+a[1])*r+a[2])*r+a[3])*r+a[4])*r+a[5])*q/(((((b[0]*r+b[1])*r+b[2])*r+b[3])*r+b[4])*r+1);}q=Math.sqrt(-2*Math.log(1-p));return -(((((c[0]*q+c[1])*q+c[2])*q+c[3])*q+c[4])*q+c[5])/((((d[0]*q+d[1])*q+d[2])*q+d[3])*q+1);}
+
+/* ================= 判异准则（与引擎同套逻辑） ================= */
+function applyRules(pts,cl,sigma,rules){
+  const z=pts.map(v=>sigma>0?(v-cl)/sigma:0),viol={};
+  const mark=(r,idx)=>{if(idx&&idx.length)viol[r]=new Set(idx);};
+  if(rules.includes(1))mark(1,z.map((v,i)=>Math.abs(v)>3?i:-1).filter(i=>i>=0));
+  if(rules.includes(2))for(let i=0;i<=z.length-9;i++){const w=z.slice(i,i+9);if(w.every(v=>v>0)||w.every(v=>v<0))mark(2,[...Array(9)].map((_,j)=>i+j));}
+  if(rules.includes(3)){const d=pts.slice(1).map((v,i)=>v-pts[i]);for(let i=0;i<=d.length-6;i++){const w=d.slice(i,i+6);if(w.every(v=>v>0)||w.every(v=>v<0))mark(3,[...Array(7)].map((_,j)=>i+j));}}
+  if(rules.includes(4)){const d=pts.slice(1).map((v,i)=>v-pts[i]);for(let i=0;i<=d.length-14;i++){const w=d.slice(i,i+14);let alt=true;for(let j=1;j<w.length;j++)if(w[j-1]*w[j]>=0)alt=false;if(alt)mark(4,[...Array(15)].map((_,j)=>i+j));}}
+  if(rules.includes(5))for(let i=0;i<=z.length-3;i++){const w=z.slice(i,i+3);if(w.filter(v=>v>2).length>=2||w.filter(v=>v<-2).length>=2)mark(5,w.map((v,j)=>Math.abs(v)>2?i+j:-1).filter(x=>x>=0));}
+  if(rules.includes(6))for(let i=0;i<=z.length-5;i++){const w=z.slice(i,i+5);if(w.filter(v=>v>1).length>=4||w.filter(v=>v<-1).length>=4)mark(6,w.map((v,j)=>Math.abs(v)>1?i+j:-1).filter(x=>x>=0));}
+  if(rules.includes(7))for(let i=0;i<=z.length-15;i++){const w=z.slice(i,i+15);if(w.every(v=>Math.abs(v)<1))mark(7,[...Array(15)].map((_,j)=>i+j));}
+  if(rules.includes(8))for(let i=0;i<=z.length-8;i++){const w=z.slice(i,i+8);if(w.every(v=>Math.abs(v)>1))mark(8,[...Array(8)].map((_,j)=>i+j));}
+  const out={};for(const k in viol)out[k]=[...viol[k]].sort((a,b)=>a-b);return out;
+}
+
+/* ================= JS 端重算（正态假设） ================= */
+function recompute(){
+  const meta=R.meta,n=meta.subgroup_size,rules=meta.rules_used;
+  const usl=meta.usl,lsl=meta.lsl;
+  const charts={};
+  if(meta.chart_type==='i_mr'){
+    const mr=DATA.slice(1).map((v,i)=>Math.abs(v-DATA[i]));
+    const mrbar=mean(mr),xb=mean(DATA),sig=mrbar/1.128;
+    charts.primary={type:'I',points:DATA.slice(),center:xb,ucl:xb+2.66*mrbar,lcl:xb-2.66*mrbar,violations:applyRules(DATA,xb,sig,rules)};
+    charts.secondary={type:'MR',points:mr,center:mrbar,ucl:3.267*mrbar,lcl:0,violations:applyRules(mr,mrbar,mrbar*.8525,rules.filter(r=>r===1))};
+  }else{
+    const k=Math.floor(DATA.length/n),sub=[];
+    for(let i=0;i<k;i++)sub.push(DATA.slice(i*n,(i+1)*n));
+    const means=sub.map(mean),xb=mean(means),c=CONST[n];
+    if(meta.chart_type==='xbar_r'){
+      const rng=sub.map(g=>Math.max(...g)-Math.min(...g)),rbar=mean(rng);
+      charts.primary={type:'Xbar',points:means,center:xb,ucl:xb+c.A2*rbar,lcl:xb-c.A2*rbar,violations:applyRules(means,xb,c.A2*rbar/3,rules)};
+      charts.secondary={type:'R',points:rng,center:rbar,ucl:c.D4*rbar,lcl:c.D3*rbar,violations:applyRules(rng,rbar,(c.D4-1)*rbar/3,rules.filter(r=>r===1))};
+      R._sigma_w=rbar/c.d2;
+    }else{
+      const sds=sub.map(sd),sbar=mean(sds);
+      charts.primary={type:'Xbar',points:means,center:xb,ucl:xb+c.A3*sbar,lcl:xb-c.A3*sbar,violations:applyRules(means,xb,c.A3*sbar/3,rules)};
+      charts.secondary={type:'S',points:sds,center:sbar,ucl:c.B4*sbar,lcl:c.B3*sbar,violations:applyRules(sds,sbar,(c.B4-1)*sbar/3,rules.filter(r=>r===1))};
+      R._sigma_w=sbar/c.c4;
+    }
+  }
+  if(meta.chart_type==='i_mr'){const mr=DATA.slice(1).map((v,i)=>Math.abs(v-DATA[i]));R._sigma_w=mean(mr)/1.128;}
+  R.charts=charts;
+  const inCtl=!Object.values(charts.primary.violations).some(a=>a.length>0)&&!Object.values(charts.secondary.violations).some(a=>a.length>0);
+  R.stability={in_control:inCtl,statement:inCtl?'过程受控（所选判异准则下无违规）':'过程不受控（存在判异违规，详见控制图），应按 OCAP 处置'};
+  const mu=mean(DATA),s=sd(DATA),sw=R._sigma_w;
+  R.statistics={mean:mu,std_total:s,std_within:sw,min:Math.min(...DATA),max:Math.max(...DATA),
+    x_00135:mu-3*s,x_50:mu,x_99865:mu+3*s,
+    mean_ci95:[mu-1.96*s/Math.sqrt(DATA.length),mu+1.96*s/Math.sqrt(DATA.length)]};
+  const idx={};
+  if(usl!==null&&lsl!==null)idx.Pp=(usl-lsl)/(6*s);
+  if(usl!==null)idx.PpU=(usl-mu)/(3*s);
+  if(lsl!==null)idx.PpL=(mu-lsl)/(3*s);
+  if(idx.PpU!==undefined||idx.PpL!==undefined)idx.Ppk=Math.min(...['PpU','PpL'].filter(k=>idx[k]!==undefined).map(k=>idx[k]));
+  const notes=[];
+  if(R.meta.stage==='capability'){
+    if(inCtl){
+      if(usl!==null&&lsl!==null)idx.Cp=(usl-lsl)/(6*sw);
+      if(usl!==null)idx.CpU=(usl-mu)/(3*sw);
+      if(lsl!==null)idx.CpL=(mu-lsl)/(3*sw);
+      if(idx.CpU!==undefined||idx.CpL!==undefined)idx.Cpk=Math.min(...['CpU','CpL'].filter(k=>idx[k]!==undefined).map(k=>idx[k]));
+    }else notes.push('过程不受控：按新版硬规则不输出 Cp/Cpk，仅输出 Pp/Ppk');
+  }
+  R.capability={stage:R.meta.stage,method:dirty?'正态经典公式（页面重算，编辑态近似）':R.capability.method,indices:Object.fromEntries(Object.entries(idx).map(([k,v])=>[k,Math.round(v*1000)/1000])),notes};
+  let pout=0;
+  if(usl!==null)pout+=1-ncdf((usl-mu)/s);
+  if(lsl!==null)pout+=ncdf((lsl-mu)/s);
+  R.ppm_expected=(usl!==null||lsl!==null)?Math.round(pout*1e8)/100:null;
+  if(dirty)R.distribution={normal:{method:'—（数据已编辑，页面按正态假设重算）',statistic:null,is_normal:null},selected:{name:'normal',label:'正态假设（待引擎复核）',quantiles:{x_00135:mu-3*s,x_50:mu,x_99865:mu+3*s}}};
+}
+
+/* ================= SVG 绘图 ================= */
+const NS='http://www.w3.org/2000/svg';
+function svgEl(w,h){const s=document.createElementNS(NS,'svg');s.setAttribute('viewBox',`0 0 ${w} ${h}`);return s;}
+function line(s,x1,y1,x2,y2,stroke,w,dash){const l=document.createElementNS(NS,'line');l.setAttribute('x1',x1);l.setAttribute('y1',y1);l.setAttribute('x2',x2);l.setAttribute('y2',y2);l.setAttribute('stroke',stroke);l.setAttribute('stroke-width',w||1);if(dash)l.setAttribute('stroke-dasharray',dash);s.appendChild(l);return l;}
+function txt(s,x,y,str,size,fill,anchor){const t=document.createElementNS(NS,'text');t.setAttribute('x',x);t.setAttribute('y',y);t.setAttribute('font-size',size||10);t.setAttribute('fill',fill||'#555');if(anchor)t.setAttribute('text-anchor',anchor);t.textContent=str;s.appendChild(t);return t;}
+function poly(s,pts,stroke,w,fill){const p=document.createElementNS(NS,'polyline');p.setAttribute('points',pts.map(q=>q.join(',')).join(' '));p.setAttribute('fill',fill||'none');p.setAttribute('stroke',stroke);p.setAttribute('stroke-width',w||1.5);s.appendChild(p);return p;}
+function circ(s,x,y,r,fill){const c=document.createElementNS(NS,'circle');c.setAttribute('cx',x);c.setAttribute('cy',y);c.setAttribute('r',r);c.setAttribute('fill',fill);s.appendChild(c);return c;}
+
+function drawSeries(el,pts,cl,ucl,lcl,violIdx,label){
+  el.innerHTML='';const W=480,H=200,mL=52,mR=10,mT=12,mB=22;
+  const s=svgEl(W,H);
+  const lo=Math.min(lcl,...pts),hi=Math.max(ucl,...pts),pad=(hi-lo)*.1||1;
+  const y=v=>mT+(H-mT-mB)*(1-(v-(lo-pad))/((hi+pad)-(lo-pad)));
+  const x=i=>mL+(W-mL-mR)*(pts.length===1?.5:i/(pts.length-1));
+  [[ucl,'UCL','#C8102E','4 3'],[cl,'CL','#666',''],[lcl,'LCL','#C8102E','4 3']].forEach(([v,lb,col,dash])=>{
+    line(s,mL,y(v),W-mR,y(v),col,1,dash);txt(s,2,y(v)+3,lb+' '+fmt(v,3),9,col);});
+  poly(s,pts.map((v,i)=>[x(i),y(v)]),'#3a6ea5',1.4);
+  const bad=new Set();Object.values(violIdx||{}).forEach(a=>a.forEach(i=>bad.add(i)));
+  pts.forEach((v,i)=>circ(s,x(i),y(v),bad.has(i)?4:2.4,bad.has(i)?'#C8102E':'#3a6ea5'));
+  txt(s,W/2,H-4,label,10,'#888','middle');
+  el.appendChild(s);
+}
+
+function drawRun(){
+  const el=$('chRun');el.innerHTML='';const W=480,H=200,mL=52,mR=10,mT=12,mB=22;
+  const s=svgEl(W,H);const lo=Math.min(...DATA),hi=Math.max(...DATA),pad=(hi-lo)*.08||1;
+  const y=v=>mT+(H-mT-mB)*(1-(v-(lo-pad))/((hi+pad)-(lo-pad)));
+  const x=i=>mL+(W-mL-mR)*(i/(DATA.length-1));
+  const m=R.meta;
+  if(m.usl!==null){line(s,mL,y(m.usl),W-mR,y(m.usl),'#C8102E',1.2);txt(s,2,y(m.usl)+3,'USL '+m.usl,9,'#C8102E');}
+  if(m.lsl!==null){line(s,mL,y(m.lsl),W-mR,y(m.lsl),'#C8102E',1.2);txt(s,2,y(m.lsl)+3,'LSL '+m.lsl,9,'#C8102E');}
+  line(s,mL,y(R.statistics.mean),W-mR,y(R.statistics.mean),'#666',1,'4 3');
+  poly(s,DATA.map((v,i)=>[x(i),y(v)]),'#3a6ea5',1.2);
+  txt(s,W/2,H-4,'观测序号 1 ~ '+DATA.length,10,'#888','middle');
+  el.appendChild(s);
+}
+
+function drawHist(){
+  const el=$('chHist');el.innerHTML='';const W=480,H=200,mL=40,mR=10,mT=12,mB=22;
+  const s=svgEl(W,H);
+  const k=Math.max(6,Math.min(18,Math.round(Math.sqrt(DATA.length))));
+  const lo=Math.min(...DATA),hi=Math.max(...DATA),bw=(hi-lo)/k||1;
+  const bins=new Array(k).fill(0);
+  DATA.forEach(v=>{let b=Math.min(k-1,Math.floor((v-lo)/bw));bins[b]++;});
+  const maxB=Math.max(...bins);
+  const x=v=>mL+(W-mL-mR)*((v-lo)/(hi-lo||1));
+  const y=c=>mT+(H-mT-mB)*(1-c/maxB);
+  bins.forEach((c,i)=>{const r=document.createElementNS(NS,'rect');r.setAttribute('x',x(lo+i*bw)+.5);r.setAttribute('y',y(c));r.setAttribute('width',Math.max(1,(W-mL-mR)/k-1));r.setAttribute('height',(H-mT-mB)-(y(c)-mT));r.setAttribute('fill','#e8b4bc');r.setAttribute('stroke','#C8102E');r.setAttribute('stroke-width','.5');s.appendChild(r);});
+  /* 拟合曲线：初始态用引擎 pdf 点；编辑后用正态 */
+  let curve=P.pdf_curve;
+  if(dirty||!curve){const mu=R.statistics.mean,sg=R.statistics.std_total;
+    curve=[...Array(80)].map((_,i)=>{const xx=lo+(hi-lo)*i/79;return[xx,Math.exp(-.5*((xx-mu)/sg)**2)/(sg*Math.sqrt(2*Math.PI))];});}
+  const maxP=Math.max(...curve.map(p=>p[1]));
+  poly(s,curve.filter(p=>p[0]>=lo&&p[0]<=hi).map(p=>[x(p[0]),mT+(H-mT-mB)*(1-p[1]/maxP*.95)]),'#C8102E',1.6);
+  const m=R.meta;
+  if(m.usl!==null)line(s,x(m.usl),mT,x(m.usl),H-mB,'#C8102E',1.2,'5 3');
+  if(m.lsl!==null)line(s,x(m.lsl),mT,x(m.lsl),H-mB,'#C8102E',1.2,'5 3');
+  txt(s,W/2,H-4,'拟合: '+R.distribution.selected.label,10,'#888','middle');
+  el.appendChild(s);
+}
+
+function drawProb(){
+  const el=$('chProb');el.innerHTML='';const W=480,H=200,mL=52,mR=10,mT=12,mB=22;
+  const s=svgEl(W,H);
+  const sorted=DATA.slice().sort((a,b)=>a-b),n=sorted.length;
+  let theo=P.prob_theo;
+  if(dirty||!theo||theo.length!==n)theo=sorted.map((_,i)=>ninv((i+.5)/n));
+  const tlo=Math.min(...theo),thi=Math.max(...theo),vlo=sorted[0],vhi=sorted[n-1];
+  const x=t=>mL+(W-mL-mR)*((t-tlo)/(thi-tlo||1));
+  const y=v=>mT+(H-mT-mB)*(1-(v-vlo)/((vhi-vlo)||1));
+  line(s,x(tlo),y(vlo),x(thi),y(vhi),'#999',1,'4 3');
+  sorted.forEach((v,i)=>circ(s,x(theo[i]),y(v),2,'#3a6ea5'));
+  txt(s,W/2,H-4,'理论分位数（'+R.distribution.selected.label+'）',10,'#888','middle');
+  el.appendChild(s);
+}
+
+/* ================= 渲染 ================= */
+const IDENT=[['part_no','零件号'],['part_name','零件名称'],['process','工序/机台'],['characteristic','特性名称'],['unit','单位'],['special_char','特殊特性标记'],['spec','规格 (LSL~USL/目标)'],['stage_label','评价阶段']];
+const COND=[['location','数据收集地点'],['period','收集时间段/时长'],['sampling','抽样频次/批次'],['operator','操作员/班次'],['gauge','测量工具/设备'],['environment','环境/非标准条件']];
+const MEAS=[['resolution','分辨力'],['accuracy','准确度'],['grr','GRR / 测量不确定度']];
+
+function fld(key,label,val){return `<div class="fld"><label>${label}</label><div class="val" data-key="${key}" contenteditable="false">${val||'【待补充】'}</div></div>`;}
+function renderInfo(){
+  const m=R.meta;
+  INFO.spec=INFO.spec||`${m.lsl??'—'} ~ ${m.usl??'—'}${m.target!=null?' / 目标 '+m.target:''}`;
+  INFO.stage_label=INFO.stage_label||({machine:'机器性能 Pm（设备放行）',performance:'过程性能 Pp/Ppk（过程放行）',capability:'过程能力 Cp/Cpk（量产监控）'})[m.stage];
+  $('secIdent').innerHTML=IDENT.map(([k,l])=>fld(k,l,INFO[k])).join('');
+  $('secCond').innerHTML=COND.map(([k,l])=>fld(k,l,INFO[k])).join('');
+  $('secMeas').innerHTML=MEAS.map(([k,l])=>fld(k,l,INFO[k])).join('');
+  $('secConcl').textContent=INFO.conclusion||'【待补充：由使用者根据以上结果给出结论与处置建议】';
+}
+function renderTable(){
+  const n=R.meta.subgroup_size;$('nSub').textContent=n;
+  const k=Math.ceil(DATA.length/n);let html='<tr><th>子组</th>';
+  for(let j=0;j<n;j++)html+='<th>X'+(j+1)+'</th>';html+='</tr>';
+  for(let i=0;i<k;i++){html+='<tr><td><b>'+(i+1)+'</b></td>';
+    for(let j=0;j<n;j++){const idx=i*n+j;html+=idx<DATA.length?`<td contenteditable="false" data-idx="${idx}">${DATA[idx]}</td>`:'<td>—</td>';}
+    html+='</tr>';}
+  $('dataTable').innerHTML=html;
+}
+function renderAll(){
+  $('genAt').textContent=P.generated_at;
+  renderInfo();renderTable();
+  const m=R.meta;
+  $('chartTypeLabel').textContent={xbar_r:'Xbar-R',xbar_s:'Xbar-s',i_mr:'I-MR'}[m.chart_type];
+  const cp=R.charts.primary,cs=R.charts.secondary;
+  drawSeries($('chCtrl'),cp.points,cp.center,cp.ucl,cp.lcl,cp.violations,cp.type+' 图');
+  drawSeries($('chCtrl2'),cs.points,cs.center,cs.ucl,cs.lcl,cs.violations,cs.type+' 图');
+  drawRun();drawHist();drawProb();
+  $('ruleNote').innerHTML='所用判异准则（按新版9.2.2用户选定）: '+m.rules_desc.join('；')+'。<br>'+m.rule_note;
+  const st=R.stability;
+  $('secStable').innerHTML=`<div class="${st.in_control?'ok':'warn'}">${st.in_control?'✔':'✖'} ${st.statement}${st.in_control?'':'<br>失控点已在控制图上标红；请按控制计划挂接的 OCAP 执行处置并记录过程日志。'}</div>`;
+  const d=R.distribution;
+  $('secDist').innerHTML=`检验方法: ${d.normal.method||'Anderson-Darling'} | 统计量 A²: ${d.normal.statistic??'—'} ${d.normal.critical_5pct?('| 5% 临界值: '+d.normal.critical_5pct):''} | 正态性: ${d.normal.is_normal===null?'—':(d.normal.is_normal?'不拒绝正态':'拒绝正态')}<br><b>所选分布模型: ${d.selected.label}</b>${d.candidates&&d.candidates.length?('<br>候选比较: '+d.candidates.map(c=>`${c.label}(A²=${c.ad_stat})`).join('，')):''}`;
+  const t=R.statistics;
+  $('secStats').innerHTML=`<tr><th>N</th><th>均值</th><th>均值95%CI</th><th>s(总体)</th><th>σ(组内)</th><th>Min</th><th>Max</th><th>X₀.₁₃₅%</th><th>X₅₀%</th><th>X₉₉.₈₆₅%</th></tr>
+  <tr><td>${DATA.length}</td><td>${fmt(t.mean)}</td><td>[${fmt(t.mean_ci95[0])}, ${fmt(t.mean_ci95[1])}]</td><td>${fmt(t.std_total)}</td><td>${fmt(t.std_within)}</td><td>${fmt(t.min)}</td><td>${fmt(t.max)}</td><td>${fmt(t.x_00135)}</td><td>${fmt(t.x_50)}</td><td>${fmt(t.x_99865)}</td></tr>`;
+  const c=R.capability;
+  $('idxMethod').textContent='计算方法: '+(c.method||'—');
+  const order=['Cp','Cpk','CpU','CpL','Pp','Ppk','PpU','PpL','Pm','Pmk','PmU','PmL'];
+  const cards=order.filter(k=>c.indices[k]!==undefined).map(k=>`<div class="idx-card"><div class="k">${k}</div><div class="v">${fmt(c.indices[k],3)}</div></div>`);
+  if(!cards.some(h=>h.includes('>Cp<'))&&R.meta.stage==='capability'&&!R.stability.in_control)cards.push('<div class="idx-card na"><div class="k">Cp/Cpk</div><div class="v">不受控·不输出</div></div>');
+  $('secIdx').innerHTML=cards.join('')||'<div class="note">未提供规格限，不输出能力指数</div>';
+  $('idxNotes').innerHTML=(c.notes||[]).concat(R.hints||[]).map(n=>`<div class="note">· ${n}</div>`).join('');
+  $('secPpm').textContent=R.ppm_expected===null?'—':fmt(R.ppm_expected,2);
+  $('secFooter').innerHTML=`报告格式与内容按新版手册 11.2 要求须经顾客与供应商共同商定 | 引擎: ${m.engine} | 数据文件: ${m.data_file} | 判异准则: ${m.rules_used.join(',')} | 本报告由 AIAG-VDA SPC助手 技能生成`;
+}
+
+/* ================= 编辑 / 保存 / 导出 ================= */
+let editing=false;
+function setEditing(on){
+  editing=on;document.body.classList.toggle('editing',on);
+  $('modeBadge').textContent=on?'编辑态':'呈现态';
+  $('modeBadge').className='badge'+(on?' editing':'');
+  $('btnEdit').textContent=on?'完成编辑':'进入编辑';
+  document.querySelectorAll('.fld .val').forEach(e=>e.setAttribute('contenteditable',on));
+  document.querySelectorAll('#dataTable td[data-idx]').forEach(e=>e.setAttribute('contenteditable',on));
+}
+function collectInfo(){document.querySelectorAll('.fld .val').forEach(e=>{INFO[e.dataset.key]=e.textContent.trim();});INFO.conclusion=$('secConcl').textContent.trim();}
+function collectData(){
+  let changed=false,bad=false;
+  document.querySelectorAll('#dataTable td[data-idx]').forEach(e=>{
+    const i=+e.dataset.idx,v=parseFloat(e.textContent.trim());
+    e.classList.remove('bad');
+    if(isNaN(v)){e.classList.add('bad');bad=true;return;}
+    if(v!==DATA[i]){DATA[i]=v;changed=true;}
+  });
+  return {changed,bad};
+}
+function saveDraft(){
+  collectInfo();
+  try{localStorage.setItem(LS_KEY,JSON.stringify({info:INFO,data:DATA,dirty}));
+    $('saveBadge').textContent='草稿已存 '+new Date().toLocaleTimeString();$('saveBadge').className='badge saved';}catch(e){}
+}
+function loadDraft(){
+  try{const d=JSON.parse(localStorage.getItem(LS_KEY));
+    if(d&&confirm('检测到本地草稿（含编辑内容），是否恢复？')){INFO=Object.assign(INFO,d.info);if(d.data&&d.data.length===DATA.length)DATA=d.data;dirty=!!d.dirty;if(dirty){document.body.classList.add('dirty');recompute();}}}catch(e){}
+}
+$('btnEdit').onclick=()=>{
+  if(editing){const r=collectData();collectInfo();
+    if(r.bad){alert('存在非数值单元格（标红），请修正后再完成编辑');return;}
+    if(r.changed){dirty=true;document.body.classList.add('dirty');recompute();}
+    renderAll();setEditing(false);saveDraft();
+  }else setEditing(true);
+};
+$('btnRecalc').onclick=()=>{const r=collectData();if(r.bad){alert('存在非数值单元格');return;}if(r.changed){dirty=true;document.body.classList.add('dirty');}recompute();renderAll();if(editing)setEditing(true);saveDraft();};
+$('btnJson').onclick=()=>{collectInfo();const blob=new Blob([JSON.stringify({info:INFO,data:DATA,result:R,exported_at:new Date().toISOString()},null,1)],{type:'application/json'});dl(blob,'spc_report_data.json');};
+$('btnImport').onclick=()=>$('fileImport').click();
+$('fileImport').onchange=e=>{const f=e.target.files[0];if(!f)return;const rd=new FileReader();rd.onload=()=>{try{const d=JSON.parse(rd.result);if(d.info)INFO=Object.assign(INFO,d.info);if(d.data){DATA=d.data;dirty=true;document.body.classList.add('dirty');recompute();}renderAll();alert('导入成功');}catch(err){alert('JSON 解析失败: '+err.message);}};rd.readAsText(f);};
+$('btnHtml').onclick=()=>{
+  collectInfo();
+  const pl=Object.assign({},P,{result:R,info:INFO,generated_at:P.generated_at+'（编辑另存于 '+new Date().toLocaleString()+'）'});
+  pl.result.raw_data=DATA;
+  const doc=document.documentElement.cloneNode(true);
+  doc.querySelector('#payload').textContent=JSON.stringify(pl);
+  const blob=new Blob(['<!DOCTYPE html>\n'+doc.outerHTML],{type:'text/html'});
+  dl(blob,'SPC报告_编辑版.html');
+};
+$('btnPdf').onclick=()=>{if(editing){alert('请先点击「完成编辑」再导出 PDF');return;}window.print();};
+function dl(blob,name){const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=name;a.click();URL.revokeObjectURL(a.href);}
+setInterval(()=>{if(editing)saveDraft();},30000);
+
+/* ================= 启动 ================= */
+renderAll();
+loadDraft();
+renderAll();
+</script>
+</body>
+</html>
