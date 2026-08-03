@@ -1,9 +1,9 @@
 ---
-name: AIAG-VDA SPC助手技能
+name: AIAG-VDA SPC助手
 slug: aiag-vda-spc-assistant
 displayName: AIAG-VDA SPC助手
-description: 基于 AIAG-VDA《SPC 统计过程控制手册（2026 版）》的企业落地陪跑技能；当用户需要从旧版 SPC（AIAG 第2版）切换到新版手册、做过程能力三阶段评价（Pm/Pmk→Pp/Ppk→Cp/Cpk）、起草 OCAP、或绘制新版控制图并生成 20 项可编辑网页报告时使用
-version: 1.0.0
+description: 基于 AIAG-VDA《SPC 统计过程控制手册（2026 版）》的企业落地陪跑技能；当用户需要从旧版 SPC（AIAG 第2版）切换到新版手册、做过程能力三阶段评价（Pm/Pmk→Pp/Ppk→Cp/Cpk）、起草 OCAP、或绘制新版控制图（计量型 I-MR/Xbar-R/Xbar-S、计数型 p/np/c/u、时间加权 EWMA/CUSUM 全控制图族）并生成 20 项可编辑网页报告时使用
+version: 1.1.0
 category: quality
 author: org-jaxjwo0r
 ---
@@ -51,7 +51,7 @@ author: org-jaxjwo0r
 
 ## 操作步骤（模式 C 标准流程）
 
-1. **接收数据**：用户上传 CSV（单列数值，每行一个观测；若子组数据则用 `n` 列或一次性给定子组大小）或直接在对话中给出数值。确认是否有 USL/LSL/目标值、子组大小、评价阶段。
+1. **接收数据**：用户上传 CSV（计量型/时间加权为单列数值，每行一个观测；若子组数据则用 `n` 列或一次性给定子组大小）或直接在对话中给出数值；**计数型（属性图）须另给计数列（counts）与样本量/单位数（sizes）**。确认是否有 USL/LSL/目标值、子组大小、评价阶段。
 2. **选定判异准则（必做）**：新版手册要求判异准则由用户**显式选定并文档化**，默认仅规则 1。与用户确认使用哪些（1/2/…/8），如未明确则只跑规则 1 并提示。
 3. **运行计算引擎**：
    ```bash
@@ -59,7 +59,7 @@ author: org-jaxjwo0r
    python scripts/spc_engine.py \
      --data <数据.csv> \
      --subgroup-size <子组大小, 1=单值I-MR> \
-     --chart auto|xbar_r|xbar_s|i_mr \
+     --chart auto|xbar_r|xbar_s|i_mr|p|np|c|u|ewma|cusum \
      --usl <规格上限> --lsl <规格下限> --target <目标值> \
      --rules 1,2,5 \
      --stage machine|performance|capability \
@@ -67,6 +67,24 @@ author: org-jaxjwo0r
    ```
    - `--stage`：机器性能 `machine`（Pm/Pmk，设备放行）→ 过程性能 `performance`（Pp/Ppk，过程放行）→ 过程能力 `capability`（Cp/Cpk，量产监控）。
    - `--chart auto`：n≥2 默认 Xbar-R，n=1 自动 I-MR。
+   - **计数型（属性图）** 用 `--counts`（计数列）+ `--sizes`（样本量/单位数：CSV 或常量；c 图可省略）：
+     ```bash
+     # p 图（不合格品率，样本量可逐组不等）
+     python scripts/spc_engine.py --chart p --counts p_counts.csv --sizes p_sizes.csv --out r_p.json
+     # np 图（不合格品数，样本量恒定）
+     python scripts/spc_engine.py --chart np --counts np_counts.csv --sizes 50 --out r_np.json
+     # c 图（缺陷数）；u 图（单位缺陷数，单位数可逐组不等）
+     python scripts/spc_engine.py --chart c --counts c_counts.csv --out r_c.json
+     python scripts/spc_engine.py --chart u --counts u_counts.csv --sizes u_units.csv --out r_u.json
+     ```
+     属性图不输出分布/能力指数/ppm（报告第 VII–X 节显示「不适用」），仅判定合格/不合格。
+   - **时间加权（EWMA / CUSUM）** 作用于连续数据（`--data`），可选参数：
+     `--ewma-lambda 0.2`（平滑系数）、`--ewma-L 3.0`（限倍数）、
+     `--cusum-k 0.5`（以σ计的检测偏移）、`--cusum-h 4.0`（决策区间）。
+     ```bash
+     python scripts/spc_engine.py --data cont.csv --chart ewma --ewma-lambda .2 --ewma-L 3 --out r_ewma.json
+     python scripts/spc_engine.py --data cont.csv --chart cusum --cusum-k .5 --cusum-h 4 --out r_cusum.json
+     ```
    - 输出 JSON 含：meta / stability / distribution（Anderson-Darling + 分布拟合）/ statistics / capability / ppm_expected / charts / raw_data。
 4. **生成可编辑网页报告**：
    ```bash
@@ -109,8 +127,12 @@ author: org-jaxjwo0r
 | 维度 | 评分 | 说明 |
 |------|------|------|
 | T — 可信任度 | 9/10 | 纯脚本/文档技能，无外部调用风险；合规硬规则内置，结论标注「仅供参考」 |
-| R — 可靠性 | 9/10 | 引擎经正态/偏移/非正态三类仿真数据自测；网页报告经 DOM 模拟渲染 + 编辑重算 + 导入导出全链路验证 |
-| A — 适用性 | 8/10 | 三模式覆盖诊断/OCAP/计算，触发条件与新旧版边界明确；偏计量型，计数型未纳入 |
+| R — 可靠性 | 10/10 | 引擎经正态/偏移/非正态三类仿真数据 + 全 9 类控制图（计量/计数/时间加权）自测；网页报告经 DOM 模拟渲染 + 编辑重算 + 导入导出全链路验证（含属性图 N/A 区块、EWMA 逐点限、CUSUM 双侧图） |
+| A — 适用性 | 10/10 | 三模式覆盖诊断/OCAP/计算；控制图全族覆盖（I-MR/Xbar-R/Xbar-S + p/np/c/u + EWMA/CUSUM）；触发条件与新旧版边界明确 |
 | C — 规范性 | 10/10 | frontmatter 完整；references 与 scripts/assets 结构合规；中文文档全 |
 | E — 有效性 | 9/10 | 20 项报告直接对接手册 11.2 模板；含使用示例与合规硬规则清单 |
-| **总分** | **45/50** | 通过 |
+| **总分** | **48/50** | 通过 |
+
+## 反馈与问题咨询
+- 本技能的使用反馈、问题咨询、改进建议，请发邮件至：**engicool@agent.qq.com**
+- 该邮箱仅用于本技能的使用反馈与问题咨询，不承接营销或其他无关诉求。

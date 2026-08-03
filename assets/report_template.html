@@ -187,7 +187,8 @@ function ninv(p){if(p<=0)return -8;if(p>=1)return 8;const a=[-3.969683028665376e
 
 /* ================= 判异准则（与引擎同套逻辑） ================= */
 function applyRules(pts,cl,sigma,rules){
-  const z=pts.map(v=>sigma>0?(v-cl)/sigma:0),viol={};
+  const sa=Array.isArray(sigma)?sigma:pts.map(()=>sigma);
+  const z=pts.map((v,i)=>sa[i]>0?(v-cl)/sa[i]:0),viol={};
   const mark=(r,idx)=>{if(idx&&idx.length)viol[r]=new Set(idx);};
   if(rules.includes(1))mark(1,z.map((v,i)=>Math.abs(v)>3?i:-1).filter(i=>i>=0));
   if(rules.includes(2))for(let i=0;i<=z.length-9;i++){const w=z.slice(i,i+9);if(w.every(v=>v>0)||w.every(v=>v<0))mark(2,[...Array(9)].map((_,j)=>i+j));}
@@ -205,6 +206,45 @@ function recompute(){
   const meta=R.meta,n=meta.subgroup_size,rules=meta.rules_used;
   const usl=meta.usl,lsl=meta.lsl;
   const charts={};
+  if(meta.is_attribute) return;   // 属性图：引擎已输出 N/A 占位，编辑态不重算
+  if(meta.chart_type==='ewma'||meta.chart_type==='cusum'){
+    let series,sigma;
+    if(n===1){series=DATA.slice();const mr=DATA.slice(1).map((v,i)=>Math.abs(v-DATA[i]));sigma=mean(mr)/1.128;R._sigma_w=sigma;}
+    else{const k=Math.floor(DATA.length/n),sub=[];for(let i=0;i<k;i++)sub.push(DATA.slice(i*n,(i+1)*n));const means=sub.map(mean);series=means;sigma=sd(means);R._sigma_w=sigma*Math.sqrt(n);}
+    const tgt=(meta.target!=null)?meta.target:mean(series);
+    if(meta.chart_type==='ewma'){
+      const lam=meta.ewma_lambda!=null?meta.ewma_lambda:0.2,L=meta.ewma_L!=null?meta.ewma_L:3.0;
+      let z=tgt;const Z=[];for(const x of series){z=lam*x+(1-lam)*z;Z.push(z);}
+      const ucls=[],lcls=[];for(let i=1;i<=series.length;i++){const f=Math.sqrt(lam/(2-lam)*(1-Math.pow(1-lam,2*i)));ucls.push(tgt+L*sigma*f);lcls.push(tgt-L*sigma*f);}
+      const sigE=sigma*Math.sqrt(lam/(2-lam));
+      charts.primary={type:'EWMA',points:Z,center:tgt,ucl:ucls,lcl:lcls,violations:applyRules(Z,tgt,sigE,rules)};
+      charts.secondary=null;
+    }else{
+      const kk=meta.cusum_k!=null?meta.cusum_k:0.5,h=meta.cusum_h!=null?meta.cusum_h:4.0,shift=kk*sigma;
+      let cp=0,cm=0;const CP=[],CM=[];
+      for(const x of series){cp=Math.max(0,x-(tgt+shift)+cp);cm=Math.max(0,(tgt-shift)-x+cm);CP.push(cp);CM.push(cm);}
+      const hsig=h*sigma;
+      charts.primary={type:'CUSUM+',points:CP,center:0,ucl:hsig,lcl:0,violations:applyRules(CP,0,hsig,rules.filter(r=>r===1))};
+      charts.secondary={type:'CUSUM-',points:CM,center:0,ucl:hsig,lcl:0,violations:applyRules(CM,0,hsig,rules.filter(r=>r===1))};
+    }
+    R.charts=charts;
+    const inCtl=!Object.values(charts.primary.violations).some(a=>a.length>0)&&(!charts.secondary||!Object.values(charts.secondary.violations).some(a=>a.length>0));
+    R.stability={in_control:inCtl,statement:inCtl?'过程受控（所选判异准则下无违规）':'过程不受控（存在判异违规，详见控制图），应按 OCAP 处置'};
+    const mu=mean(DATA),s=sd(DATA),sw=R._sigma_w;
+    R.statistics={mean:mu,std_total:s,std_within:sw,min:Math.min(...DATA),max:Math.max(...DATA),x_00135:mu-3*s,x_50:mu,x_99865:mu+3*s,mean_ci95:[mu-1.96*s/Math.sqrt(DATA.length),mu+1.96*s/Math.sqrt(DATA.length)]};
+    const idx={};
+    if(usl!==null&&lsl!==null)idx.Pp=(usl-lsl)/(6*s);
+    if(usl!==null)idx.PpU=(usl-mu)/(3*s);
+    if(lsl!==null)idx.PpL=(mu-lsl)/(3*s);
+    if(idx.PpU!==undefined||idx.PpL!==undefined)idx.Ppk=Math.min(...['PpU','PpL'].filter(k=>idx[k]!==undefined).map(k=>idx[k]));
+    const notes=[];
+    if(R.meta.stage==='capability'){if(inCtl){if(usl!==null&&lsl!==null)idx.Cp=(usl-lsl)/(6*sw);if(usl!==null)idx.CpU=(usl-mu)/(3*sw);if(lsl!==null)idx.CpL=(mu-lsl)/(3*sw);if(idx.CpU!==undefined||idx.CpL!==undefined)idx.Cpk=Math.min(...['CpU','CpL'].filter(k=>idx[k]!==undefined).map(k=>idx[k]));}else notes.push('过程不受控：按新版硬规则不输出 Cp/Cpk，仅输出 Pp/Ppk');}
+    R.capability={stage:R.meta.stage,method:dirty?'正态经典公式（页面重算，编辑态近似）':R.capability.method,indices:Object.fromEntries(Object.entries(idx).map(([k,v])=>[k,Math.round(v*1000)/1000])),notes};
+    let pout=0;if(usl!==null)pout+=1-ncdf((usl-mu)/s);if(lsl!==null)pout+=ncdf((lsl-mu)/s);
+    R.ppm_expected=(usl!==null||lsl!==null)?Math.round(pout*1e8)/100:null;
+    if(dirty)R.distribution={normal:{method:'—（数据已编辑，页面按正态假设重算）',statistic:null,is_normal:null},selected:{name:'normal',label:'正态假设（待引擎复核）',quantiles:{x_00135:mu-3*s,x_50:mu,x_99865:mu+3*s}}};
+    return;
+  }
   if(meta.chart_type==='i_mr'){
     const mr=DATA.slice(1).map((v,i)=>Math.abs(v-DATA[i]));
     const mrbar=mean(mr),xb=mean(DATA),sig=mrbar/1.128;
@@ -261,17 +301,25 @@ const NS='http://www.w3.org/2000/svg';
 function svgEl(w,h){const s=document.createElementNS(NS,'svg');s.setAttribute('viewBox',`0 0 ${w} ${h}`);return s;}
 function line(s,x1,y1,x2,y2,stroke,w,dash){const l=document.createElementNS(NS,'line');l.setAttribute('x1',x1);l.setAttribute('y1',y1);l.setAttribute('x2',x2);l.setAttribute('y2',y2);l.setAttribute('stroke',stroke);l.setAttribute('stroke-width',w||1);if(dash)l.setAttribute('stroke-dasharray',dash);s.appendChild(l);return l;}
 function txt(s,x,y,str,size,fill,anchor){const t=document.createElementNS(NS,'text');t.setAttribute('x',x);t.setAttribute('y',y);t.setAttribute('font-size',size||10);t.setAttribute('fill',fill||'#555');if(anchor)t.setAttribute('text-anchor',anchor);t.textContent=str;s.appendChild(t);return t;}
-function poly(s,pts,stroke,w,fill){const p=document.createElementNS(NS,'polyline');p.setAttribute('points',pts.map(q=>q.join(',')).join(' '));p.setAttribute('fill',fill||'none');p.setAttribute('stroke',stroke);p.setAttribute('stroke-width',w||1.5);s.appendChild(p);return p;}
+function poly(s,pts,stroke,w,fill,dash){const p=document.createElementNS(NS,'polyline');p.setAttribute('points',pts.map(q=>q.join(',')).join(' '));p.setAttribute('fill',fill||'none');p.setAttribute('stroke',stroke);p.setAttribute('stroke-width',w||1.5);if(dash)p.setAttribute('stroke-dasharray',dash);s.appendChild(p);return p;}
 function circ(s,x,y,r,fill){const c=document.createElementNS(NS,'circle');c.setAttribute('cx',x);c.setAttribute('cy',y);c.setAttribute('r',r);c.setAttribute('fill',fill);s.appendChild(c);return c;}
 
 function drawSeries(el,pts,cl,ucl,lcl,violIdx,label){
   el.innerHTML='';const W=480,H=200,mL=52,mR=10,mT=12,mB=22;
   const s=svgEl(W,H);
-  const lo=Math.min(lcl,...pts),hi=Math.max(ucl,...pts),pad=(hi-lo)*.1||1;
+  const uIsArr=Array.isArray(ucl),lIsArr=Array.isArray(lcl);
+  const uA=uIsArr?ucl:pts.map(()=>ucl);
+  const lA=lIsArr?lcl:pts.map(()=>lcl);
+  const lo=Math.min(...lA,...pts),hi=Math.max(...uA,...pts),pad=(hi-lo)*.1||1;
   const y=v=>mT+(H-mT-mB)*(1-(v-(lo-pad))/((hi+pad)-(lo-pad)));
   const x=i=>mL+(W-mL-mR)*(pts.length===1?.5:i/(pts.length-1));
-  [[ucl,'UCL','#C8102E','4 3'],[cl,'CL','#666',''],[lcl,'LCL','#C8102E','4 3']].forEach(([v,lb,col,dash])=>{
-    line(s,mL,y(v),W-mR,y(v),col,1,dash);txt(s,2,y(v)+3,lb+' '+fmt(v,3),9,col);});
+  const drawLim=(arr,isArr,lb,col)=>{
+    if(isArr){poly(s,arr.map((v,i)=>[x(i),y(v)]),col,1,'4 3');txt(s,2,y(arr[0])+3,lb,9,col);}
+    else{line(s,mL,y(arr),W-mR,y(arr),col,1,'4 3');txt(s,2,y(arr)+3,lb+' '+fmt(arr,3),9,col);}
+  };
+  drawLim(uA,uIsArr,'UCL','#C8102E');
+  line(s,mL,y(cl),W-mR,y(cl),'#666',1,'');txt(s,2,y(cl)+3,'CL '+fmt(cl,3),9,'#666');
+  drawLim(lA,lIsArr,'LCL','#C8102E');
   poly(s,pts.map((v,i)=>[x(i),y(v)]),'#3a6ea5',1.4);
   const bad=new Set();Object.values(violIdx||{}).forEach(a=>a.forEach(i=>bad.add(i)));
   pts.forEach((v,i)=>circ(s,x(i),y(v),bad.has(i)?4:2.4,bad.has(i)?'#C8102E':'#3a6ea5'));
@@ -294,7 +342,9 @@ function drawRun(){
 }
 
 function drawHist(){
-  const el=$('chHist');el.innerHTML='';const W=480,H=200,mL=40,mR=10,mT=12,mB=22;
+  const el=$('chHist');el.innerHTML='';
+  if(R.meta.is_attribute){el.innerHTML='<div class="note" style="padding:24px 8px">计数型控制图不绘制连续型直方图（无拟合分布）。请以本文「控制图」为准。</div>';return;}
+  const W=480,H=200,mL=40,mR=10,mT=12,mB=22;
   const s=svgEl(W,H);
   const k=Math.max(6,Math.min(18,Math.round(Math.sqrt(DATA.length))));
   const lo=Math.min(...DATA),hi=Math.max(...DATA),bw=(hi-lo)/k||1;
@@ -318,7 +368,9 @@ function drawHist(){
 }
 
 function drawProb(){
-  const el=$('chProb');el.innerHTML='';const W=480,H=200,mL=52,mR=10,mT=12,mB=22;
+  const el=$('chProb');el.innerHTML='';
+  if(R.meta.is_attribute){el.innerHTML='<div class="note" style="padding:24px 8px">计数型控制图不绘制概率图（正态性不适用）。</div>';return;}
+  const W=480,H=200,mL=52,mR=10,mT=12,mB=22;
   const s=svgEl(W,H);
   const sorted=DATA.slice().sort((a,b)=>a-b),n=sorted.length;
   let theo=P.prob_theo;
@@ -349,6 +401,13 @@ function renderInfo(){
 }
 function renderTable(){
   const n=R.meta.subgroup_size;$('nSub').textContent=n;
+  if(R.meta.is_attribute){
+    const a=R.attr,counts=a.counts,sizes=a.sizes,k=counts.length;
+    let head='<tr><th>子组</th><th>计数值</th>'+(sizes?'<th>'+(R.meta.attr_chart==='u'?'单位数':'样本量')+'</th>':'</tr>');
+    let body='';
+    for(let i=0;i<k;i++){body+='<tr><td><b>'+(i+1)+'</b></td><td>'+counts[i]+'</td>'+(sizes?('<td>'+sizes[i]+'</td>'):'')+'</tr>';}
+    $('dataTable').innerHTML=head+body;return;
+  }
   const k=Math.ceil(DATA.length/n);let html='<tr><th>子组</th>';
   for(let j=0;j<n;j++)html+='<th>X'+(j+1)+'</th>';html+='</tr>';
   for(let i=0;i<k;i++){html+='<tr><td><b>'+(i+1)+'</b></td>';
@@ -359,15 +418,28 @@ function renderTable(){
 function renderAll(){
   $('genAt').textContent=P.generated_at;
   renderInfo();renderTable();
-  const m=R.meta;
-  $('chartTypeLabel').textContent={xbar_r:'Xbar-R',xbar_s:'Xbar-s',i_mr:'I-MR'}[m.chart_type];
+  const m=R.meta,isAttr=!!m.is_attribute;
+  const LBL={xbar_r:'Xbar-R',xbar_s:'Xbar-s',i_mr:'I-MR',p:'p 图（不合格品率）',np:'np 图（不合格品数）',c:'c 图（缺陷数）',u:'u 图（单位缺陷数）',ewma:'EWMA（指数加权移动平均）',cusum:'CUSUM（累积和）'};
+  $('chartTypeLabel').textContent=LBL[m.chart_type]||m.chart_type;
   const cp=R.charts.primary,cs=R.charts.secondary;
   drawSeries($('chCtrl'),cp.points,cp.center,cp.ucl,cp.lcl,cp.violations,cp.type+' 图');
-  drawSeries($('chCtrl2'),cs.points,cs.center,cs.ucl,cs.lcl,cs.violations,cs.type+' 图');
+  if(cs){$('chCtrl2').style.display='';drawSeries($('chCtrl2'),cs.points,cs.center,cs.ucl,cs.lcl,cs.violations,cs.type+' 图');}
+  else{$('chCtrl2').innerHTML='';$('chCtrl2').style.display='none';}
   drawRun();drawHist();drawProb();
   $('ruleNote').innerHTML='所用判异准则（按新版9.2.2用户选定）: '+m.rules_desc.join('；')+'。<br>'+m.rule_note;
   const st=R.stability;
   $('secStable').innerHTML=`<div class="${st.in_control?'ok':'warn'}">${st.in_control?'✔':'✖'} ${st.statement}${st.in_control?'':'<br>失控点已在控制图上标红；请按控制计划挂接的 OCAP 执行处置并记录过程日志。'}</div>`;
+  if(isAttr){
+    $('secDist').innerHTML='<b>计数型控制图：不适用连续分布分析（无拟合分布 / 正态性检验）。</b>';
+    $('secStats').innerHTML='<tr><td>计数型控制图不输出连续型样本统计量（均值 / 标准差等）。</td></tr>';
+    const c=R.capability;
+    $('idxMethod').textContent='计算方法: '+(c.method||'—');
+    $('secIdx').innerHTML='<div class="idx-card na"><div class="k">能力指数</div><div class="v">不适用</div></div>';
+    $('idxNotes').innerHTML=(c.notes||[]).map(n=>`<div class="note">· ${n}</div>`).join('');
+    $('secPpm').textContent='—（不适用）';
+    $('secFooter').innerHTML=`报告格式与内容按新版手册 11.2 要求须经顾客与供应商共同商定 | 引擎: ${m.engine} | 数据文件: ${m.data_file} | 判异准则: ${m.rules_used.join(',')} | 本报告由 AIAG-VDA SPC助手 技能生成`;
+    return;
+  }
   const d=R.distribution;
   $('secDist').innerHTML=`检验方法: ${d.normal.method||'Anderson-Darling'} | 统计量 A²: ${d.normal.statistic??'—'} ${d.normal.critical_5pct?('| 5% 临界值: '+d.normal.critical_5pct):''} | 正态性: ${d.normal.is_normal===null?'—':(d.normal.is_normal?'不拒绝正态':'拒绝正态')}<br><b>所选分布模型: ${d.selected.label}</b>${d.candidates&&d.candidates.length?('<br>候选比较: '+d.candidates.map(c=>`${c.label}(A²=${c.ad_stat})`).join('，')):''}`;
   const t=R.statistics;

@@ -32,7 +32,10 @@ DEFAULT_TEMPLATE = os.path.join(os.path.dirname(os.path.abspath(__file__)),
 
 
 def pdf_curve(result, n_pts=80):
-    """按引擎所选分布模型生成拟合曲线点 [(x, pdf)]，供直方图初始态使用。"""
+    """按引擎所选分布模型生成拟合曲线点 [(x, pdf)]，供直方图初始态使用。
+    属性图（计数型）不适用连续分布，返回空列表。"""
+    if result.get("meta", {}).get("is_attribute"):
+        return []
     sel = result["distribution"]["selected"]
     data = np.array(result["raw_data"])
     lo, hi = float(np.min(data)), float(np.max(data))
@@ -48,7 +51,10 @@ def pdf_curve(result, n_pts=80):
 
 
 def prob_theo(result):
-    """按所选分布生成概率图理论分位数（与排序数据一一对应）。"""
+    """按所选分布生成概率图理论分位数（与排序数据一一对应）。
+    属性图（计数型）不适用概率图，返回空列表。"""
+    if result.get("meta", {}).get("is_attribute"):
+        return []
     sel = result["distribution"]["selected"]
     n = len(result["raw_data"])
     p = (np.arange(1, n + 1) - 0.5) / n
